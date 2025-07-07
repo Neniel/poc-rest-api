@@ -1,6 +1,6 @@
 # --- Etapa 1: Build ---
 # Usamos una imagen oficial de Go como constructor
-FROM golang:1.21-alpine AS builder
+FROM golang:1.22-alpine AS builder
 
 # Establecemos el directorio de trabajo dentro del contenedor
 WORKDIR /app

@@ -34,6 +34,12 @@ jobs:
         with:
           fetch-depth: 0 # Necesario para poder crear y subir tags
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22' # Asegúrate que coincida con la versión de tu go.mod o Dockerfile
+        id: go
+
       - name: Extract Image Info from dev overlay
         id: image-data
         run: |
