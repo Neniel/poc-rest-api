@@ -1,0 +1,150 @@
+# Workflow de CI/CD que construye, despliega a 'dev', espera por una
+# aprobación manual, y luego promueve el lanzamiento a 'prod'.
+
+name: Deploy to Dev and Promote to Prod
+
+on:
+  # Permite ejecutar este workflow manualmente desde la pestaña Actions
+  workflow_dispatch:
+
+  # Se activa en cada push o merge a la rama main
+  push:
+    branches:
+      - 'main'
+
+jobs:
+  # --- JOB 1: Construir la imagen y desplegar en DEV ---
+  build_and_deploy_dev:
+    name: Build and Deploy to Dev
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write      # Permiso para crear y subir tags de Git
+      packages: write    # Permiso para escribir en ghcr.io
+
+    # Definimos los outputs que pasarán a los siguientes jobs
+    outputs:
+      image_name: ${{ steps.image-data.outputs.image_name }}
+      rc_version: ${{ steps.image-data.outputs.rc_version }}
+      stable_version: ${{ steps.image-data.outputs.stable_version }}
+      is_rc: ${{ steps.image-data.outputs.is_rc }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Necesario para poder crear y subir tags
+
+      - name: Extract Image Info from dev overlay
+        id: image-data
+        run: |
+          # Extraemos la línea que contiene "image:" del parche de desarrollo.
+          IMAGE_FULL=$(grep 'image:' deploy/overlays/dev/patch-deployment.yaml | awk '{print $2}')
+
+          if [ -z "$IMAGE_FULL" ]; then
+            echo "Error: No se pudo encontrar la línea 'image:' en deploy/overlays/dev/patch-deployment.yaml"
+            exit 1
+          fi
+
+          # Separamos el nombre de la imagen y la versión
+          IMAGE_NAME=$(echo $IMAGE_FULL | cut -d':' -f1)
+          RC_VERSION=$(echo $IMAGE_FULL | cut -d':' -f2)
+
+          # Generamos la versión estable eliminando el sufijo "-rc"
+          # y todo lo que le sigue.
+          STABLE_VERSION=$(echo $RC_VERSION | sed 's/-rc.*//')
+
+          # Determinamos si es un Release Candidate
+          IS_RC="false"
+          if [[ "$RC_VERSION" == *"-rc"* ]]; then
+            IS_RC="true"
+          fi
+
+          # Exponemos las variables como outputs del paso
+          echo "image_name=$IMAGE_NAME" >> $GITHUB_OUTPUT
+          echo "rc_version=$RC_VERSION" >> $GITHUB_OUTPUT
+          echo "stable_version=$STABLE_VERSION" >> $GITHUB_OUTPUT
+          echo "is_rc=$IS_RC" >> $GITHUB_OUTPUT
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        id: build-push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.image-data.outputs.image_name }}:${{ steps.image-data.outputs.rc_version }}
+
+      - name: Create and push Git tag for Dev
+        if: success()
+        run: |
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+          git tag -a "${{ steps.image-data.outputs.rc_version }}" -m "Release Candidate ${{ steps.image-data.outputs.rc_version }}"
+          git push origin "${{ steps.image-data.outputs.rc_version }}"
+          echo "Git tag para Dev: ${{ steps.image-data.outputs.rc_version }} creado y subido."
+
+  # --- JOB 2: Esperar por aprobación para ir a PROD ---
+  approve_for_production:
+    name: Approve for Production
+    runs-on: ubuntu-latest
+    needs: build_and_deploy_dev
+    # Solo se ejecuta si el despliegue a dev fue un RC
+    if: needs.build_and_deploy_dev.outputs.is_rc == 'true'
+    environment:
+      name: production
+      url: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Awaiting Production Approval
+        run: |
+          echo "Despliegue en 'dev' completado con la versión ${{ needs.build_and_deploy_dev.outputs.rc_version }}."
+          echo "Esperando aprobación para promover la versión estable ${{ needs.build_and_deploy_dev.outputs.stable_version }} a producción."
+
+  # --- JOB 3: Desplegar en PROD después de la aprobación ---
+  deploy_prod:
+    name: Tag and Deploy to Prod
+    runs-on: ubuntu-latest
+    needs: [build_and_deploy_dev, approve_for_production]
+    # Solo se ejecuta si el job de aprobación fue requerido y exitoso
+    if: always() && needs.approve_for_production.result == 'success'
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Retag and Push Stable Image
+        run: |
+          IMAGE_NAME=${{ needs.build_and_deploy_dev.outputs.image_name }}
+          RC_VERSION=${{ needs.build_and_deploy_dev.outputs.rc_version }}
+          STABLE_VERSION=${{ needs.build_and_deploy_dev.outputs.stable_version }}
+
+          echo "Retagueando ${IMAGE_NAME}:${RC_VERSION} como ${IMAGE_NAME}:${STABLE_VERSION}"
+          docker pull ${IMAGE_NAME}:${RC_VERSION}
+          docker tag ${IMAGE_NAME}:${RC_VERSION} ${IMAGE_NAME}:${STABLE_VERSION}
+          docker push ${IMAGE_NAME}:${STABLE_VERSION}
+
+      - name: Create and push Git tag for Prod
+        if: success()
+        run: |
+          STABLE_VERSION=${{ needs.build_and_deploy_dev.outputs.stable_version }}
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+          git tag -a "$STABLE_VERSION" -m "Stable Release $STABLE_VERSION"
+          git push origin "$STABLE_VERSION"
+          echo "Git tag para Prod: $STABLE_VERSION creado y subido."
