@@ -1,0 +1,15 @@
+# Este archivo es el punto de entrada para Kustomize.
+# Define los recursos que componen la aplicación base.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Lista de recursos que se incluirán en el despliegue
+resources:
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+
+# Etiquetas comunes que se aplicarán a todos los recursos
+commonLabels:
+  app.kubernetes.io/name: poc-rest-api
+  app.kubernetes.io/part-of: poc-rest-api

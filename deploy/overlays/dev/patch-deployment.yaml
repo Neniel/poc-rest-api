@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: poc-rest-api
+spec:
+  replicas: 1 # Solo 1 réplica para desarrollo
+  template:
+    spec:
+      containers:
+        - name: poc-rest-api
+          image: ghcr.io/neniel/poc-rest-api:0.0.1-rc1
+          env:
+            - name: ENVIRONMENT
+              value: "dev"
+            - name: VERSION
+              value: "0.0.1-rc1"
+          # Usamos límites de recursos más bajos para dev
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "32Mi"
+            limits:
+              cpu: "100m"
+              memory: "64Mi"

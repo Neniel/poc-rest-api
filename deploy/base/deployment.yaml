@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: poc-rest-api
+spec:
+  replicas: 2 # Ejecutamos 2 réplicas para alta disponibilidad
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: poc-rest-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: poc-rest-api
+    spec:
+      containers:
+        - name: poc-rest-api
+          # IMPORTANTE: Reemplaza esto con la URL de tu imagen de contenedor
+          image: ghcr.io/neniel/poc-rest-api:X.Y.Z
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: APP_NAME
+              value: "poc-rest-api"
+            - name: ENVIRONMENT
+              value: "localhost"
+            - name: VERSION
+              value: "X.Y.Z"
+          # Sondas de salud para que Kubernetes sepa si tu app está viva y lista
+          livenessProbe:
+            httpGet:
+              path: /api/v1/healtz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /api/v1/healtz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
