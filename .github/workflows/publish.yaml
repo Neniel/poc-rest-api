@@ -14,8 +14,8 @@ jobs:
     name: Build and Deploy to Dev
     runs-on: ubuntu-latest
     permissions:
-      contents: write      # Permiso para crear y subir tags de Git
-      packages: write    # Permiso para escribir en ghcr.io
+      contents: write
+      packages: write
 
     outputs:
       image_name: ${{ steps.image-data.outputs.image_name }}
@@ -37,34 +37,39 @@ jobs:
           go-version: '1.22'
         id: go
 
-      - name: Extract Image and Tag Info
+      - name: Extract and Correct Image/Tag Info
         id: image-data
         run: |
-          # Extraemos la línea que contiene "image:" del parche de desarrollo.
           IMAGE_FULL=$(grep 'image:' deploy/overlays/dev/patch-deployment.yaml | awk '{print $2}')
           if [ -z "$IMAGE_FULL" ]; then
             echo "Error: No se pudo encontrar la línea 'image:' en deploy/overlays/dev/patch-deployment.yaml"
             exit 1
           fi
 
-          # Versión para la IMAGEN (sin 'v'), ej: 0.0.1-rc.1
           IMAGE_NAME=$(echo $IMAGE_FULL | cut -d':' -f1)
-          IMAGE_VERSION=$(echo $IMAGE_FULL | cut -d':' -f2)
+          RAW_IMAGE_VERSION=$(echo $IMAGE_FULL | cut -d':' -f2)
 
-          # Tag para GIT (CON 'v'), ej: v0.0.1-rc.1
-          GIT_TAG="v${IMAGE_VERSION}"
+          # --- LÓGICA DE CORRECCIÓN ---
+          # Asegura que el formato sea X.Y.Z-rc.N
+          CORRECTED_IMAGE_VERSION=$RAW_IMAGE_VERSION
+          if [[ "$RAW_IMAGE_VERSION" == *"rc"* && "$RAW_IMAGE_VERSION" != *"rc."* ]]; then
+            # Si dice 'rc' pero no 'rc.', le insertamos el punto.
+            CORRECTED_IMAGE_VERSION=$(echo "$RAW_IMAGE_VERSION" | sed 's/rc/rc./')
+            echo "Formato de versión corregido de '$RAW_IMAGE_VERSION' a '$CORRECTED_IMAGE_VERSION'"
+          fi
+          # --- FIN LÓGICA DE CORRECCIÓN ---
 
-          # Versiones ESTABLES para promover a producción
-          STABLE_IMAGE_VERSION=$(echo $IMAGE_VERSION | sed 's/-.*//')
+          GIT_TAG="v${CORRECTED_IMAGE_VERSION}"
+          STABLE_IMAGE_VERSION=$(echo $CORRECTED_IMAGE_VERSION | sed 's/-.*//')
           STABLE_GIT_TAG="v${STABLE_IMAGE_VERSION}"
 
           IS_RC="false"
-          if [[ "$IMAGE_VERSION" == *"-rc"* ]]; then
+          if [[ "$CORRECTED_IMAGE_VERSION" == *"-rc."* ]]; then
             IS_RC="true"
           fi
 
           echo "image_name=$IMAGE_NAME" >> $GITHUB_OUTPUT
-          echo "image_version=$IMAGE_VERSION" >> $GITHUB_OUTPUT
+          echo "image_version=$CORRECTED_IMAGE_VERSION" >> $GITHUB_OUTPUT
           echo "stable_image_version=$STABLE_IMAGE_VERSION" >> $GITHUB_OUTPUT
           echo "git_tag=$GIT_TAG" >> $GITHUB_OUTPUT
           echo "stable_git_tag=$STABLE_GIT_TAG" >> $GITHUB_OUTPUT
