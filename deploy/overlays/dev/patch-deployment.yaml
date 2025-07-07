@@ -8,12 +8,12 @@ spec:
     spec:
       containers:
         - name: poc-rest-api
-          image: ghcr.io/neniel/poc-rest-api:0.0.1-rc.1
+          image: ghcr.io/neniel/poc-rest-api:0.0.2-rc.1
           env:
             - name: ENVIRONMENT
               value: "dev"
             - name: VERSION
-              value: "0.0.1-rc.1"
+              value: "0.0.2-rc.1"
           # Usamos límites de recursos más bajos para dev
           resources:
             requests:
