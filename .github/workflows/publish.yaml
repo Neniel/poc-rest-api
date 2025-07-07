@@ -55,9 +55,8 @@ jobs:
           IMAGE_NAME=$(echo $IMAGE_FULL | cut -d':' -f1)
           RC_VERSION=$(echo $IMAGE_FULL | cut -d':' -f2)
 
-          # Generamos la versión estable eliminando el sufijo "-rc"
-          # y todo lo que le sigue.
-          STABLE_VERSION=$(echo $RC_VERSION | sed 's/-rc.*//')
+          # Generamos la versión estable eliminando el sufijo de pre-lanzamiento (-rc.1, -beta, etc.)
+          STABLE_VERSION=$(echo $RC_VERSION | sed 's/-.*//')
 
           # Determinamos si es un Release Candidate
           IS_RC="false"
